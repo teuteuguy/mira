@@ -9,6 +9,7 @@ detection accepts both.
 
 from __future__ import annotations
 
+import fnmatch
 import re
 
 
@@ -60,3 +61,42 @@ def author_is_filtered(login: str, allowed: list[str], blocked: list[str]) -> bo
     if any(v in blocked for v in variants):
         return True
     return bool(allowed and not any(v in allowed for v in variants))
+
+
+_PROJECT_PREFIX = "project:"
+
+
+def _repo_matches(pattern: str, full_name: str, project_key: str | None) -> bool:
+    if pattern.lower().startswith(_PROJECT_PREFIX):
+        key = pattern[len(_PROJECT_PREFIX) :]
+        return bool(project_key) and key.lower() == (project_key or "").lower()
+    return fnmatch.fnmatchcase(full_name, pattern.lower())
+
+
+def repo_is_filtered(
+    owner: str,
+    repo: str,
+    allowed: list[str],
+    blocked: list[str],
+    *,
+    project_key: str | None = None,
+) -> bool:
+    """True if events for ``owner/repo`` should be skipped entirely.
+
+    Patterns are case-insensitive ``fnmatch`` globs against ``owner/repo``
+    (``owner`` may contain slashes for nested GitLab groups). A pattern of
+    the form ``project:<KEY>`` matches ``project_key`` instead (Bitbucket
+    project keys); it never matches when no ``project_key`` is given.
+
+    Precedence (mirrors ``author_is_filtered``):
+      - empty ``repo`` → never filtered (no repo info → nothing repo-scoped
+        to skip);
+      - ``blocked`` wins: any matching pattern → filtered;
+      - then if ``allowed`` is non-empty and no pattern matches → filtered.
+    """
+    if not repo:
+        return False
+    full_name = f"{owner}/{repo}".lower()
+    if any(_repo_matches(p, full_name, project_key) for p in blocked):
+        return True
+    return bool(allowed and not any(_repo_matches(p, full_name, project_key) for p in allowed))

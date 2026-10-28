@@ -9,6 +9,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Bitbucket Cloud support.** A fourth platform adapter reviews pull requests posted to `/bitbucket/webhook` (HMAC-SHA256 `X-Hub-Signature`), answers `@mention` commands and threaded replies, resolves outdated bot threads, learns from merged PRs, and incrementally indexes pushes to the main branch using the diffstat API. Configure with `MIRA_BITBUCKET_TOKEN` (access token, or `email:api_token`) and `MIRA_BITBUCKET_WEBHOOK_SECRET`; `MIRA_BITBUCKET_WORKSPACE` scopes dashboard discovery and `MIRA_BITBUCKET_BOT_USER` names the bot when the token can't read `/user`. `pullrequest:updated` events only trigger a review when the source commit changed, and the pause state lives in Mira's database because Bitbucket PRs have no labels.
+- **Repository allow/deny lists.** `filter.allowed_repos` and `filter.blocked_repos` choose which repositories Mira reviews, answers commands in, indexes, and learns from when a webhook covers a whole org or workspace. Patterns are case-insensitive globs against `owner/repo` (nested GitLab groups included), and `project:<KEY>` matches a Bitbucket project key. `blocked_repos` wins; an empty `allowed_repos` allows every repository. GitHub installation events are never filtered.
 
 ## [0.10.0] — 2026-10-26
 

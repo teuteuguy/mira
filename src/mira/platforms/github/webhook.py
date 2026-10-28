@@ -39,6 +39,7 @@ from mira.platforms.mentions import (
     command_after_mention,
     has_mention,
     mention_names,
+    repo_is_filtered,
     strip_mentions,
 )
 from mira.providers import create_provider
@@ -452,6 +453,16 @@ async def dispatch_github_event(
     """
     action = payload.get("action", "")
     cfg = load_config()
+
+    # Repo allow/block filter covers every repo-scoped event. Installation
+    # events are account-scoped and always handled.
+    if not event.startswith("installation"):
+        repository = payload.get("repository", {})
+        owner = repository.get("owner", {}).get("login", "")
+        repo = repository.get("name", "")
+        if repo_is_filtered(owner, repo, cfg.filter.allowed_repos, cfg.filter.blocked_repos):
+            logger.debug("Ignoring %s event for %s/%s — repo filtered", event, owner, repo)
+            return "ignored"
 
     # Track PR review lifecycle for every pull_request event (open/close/
     # ready/review_requested/...), independent of the review-trigger logic
