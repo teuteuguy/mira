@@ -88,6 +88,7 @@ Mira is a self-hostable, fully open-source AI code reviewer. Everything below is
 - Confidence thresholds (global and per-category), severity thresholds, comment caps
 - Exclude patterns and per-language overrides
 - PR author allow/deny lists (`filter.allowed_authors` / `filter.blocked_authors`) for muting bots or scoping auto-review
+- Repository allow/deny lists (`filter.allowed_repos` / `filter.blocked_repos`) with `owner/repo` globs and Bitbucket `project:<KEY>` patterns, for scoping an org- or workspace-wide webhook to selected repos
 - Command authorization (`commands`): repo-write access by default, explicit user allowlists, per-command allow/deny overrides, and a global command deny list
 - Cross-PR overlap tuning (`review.overlap`): candidate cap, confidence floor, title-similarity threshold
 - Opt-in ensemble mode (`review.ensemble_runs`): review each chunk N times and keep majority-vote findings
