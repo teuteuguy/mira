@@ -42,6 +42,7 @@ from mira.platforms.mentions import (
     author_is_filtered,
     has_mention,
     mention_names,
+    repo_is_filtered,
     strip_mentions,
 )
 from mira.providers import create_provider
@@ -457,6 +458,18 @@ async def dispatch_bitbucket_event(
     if bot_ids & user_identifiers(actor_user):
         return "ignored"
     cfg = load_config()
+
+    repository = payload.get("repository", {})
+    owner, _, repo = repository.get("full_name", "").partition("/")
+    if repo_is_filtered(
+        owner,
+        repo,
+        cfg.filter.allowed_repos,
+        cfg.filter.blocked_repos,
+        project_key=(repository.get("project") or {}).get("key"),
+    ):
+        logger.debug("Ignoring %s for %s/%s — repo filtered", event, owner, repo)
+        return "ignored"
 
     if event in PR_REVIEW_EVENTS:
         pr = payload.get("pullrequest", {})

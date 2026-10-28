@@ -33,6 +33,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Agentic tool turns retain reasoning context.** Chat and Responses conversations preserve reasoning data and tool-call identifiers across turns.
 - **Bedrock thinking and tools use compatible request shapes.** Thinking settings, forced tool choice, and tool specifications now follow model requirements.
 - **Codex CLI receives the configured reasoning effort.** Review invocations now pass the selected reasoning setting to the CLI.
+- **Repository allow/deny lists.** `filter.allowed_repos` and `filter.blocked_repos` choose which repositories Mira reviews, answers commands in, indexes, and learns from when a webhook covers a whole org or workspace. Patterns are case-insensitive globs against `owner/repo` (nested GitLab groups included), and `project:<KEY>` matches a Bitbucket project key. `blocked_repos` wins; an empty `allowed_repos` allows every repository. GitHub installation events are never filtered.
 
 ## [0.10.0] — 2026-10-26
 

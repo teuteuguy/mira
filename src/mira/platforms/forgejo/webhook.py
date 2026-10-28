@@ -26,6 +26,7 @@ from mira.platforms.mentions import (
     author_is_filtered,
     has_mention,
     mention_names,
+    repo_is_filtered,
     strip_mentions,
 )
 from mira.providers import create_provider
@@ -410,6 +411,11 @@ async def dispatch_forgejo_event(
     if actor and bot_identity and actor == bot_identity:
         return "ignored"
     cfg = load_config()
+
+    owner, _, repo = payload.get("repository", {}).get("full_name", "").partition("/")
+    if repo_is_filtered(owner, repo, cfg.filter.allowed_repos, cfg.filter.blocked_repos):
+        logger.debug("Ignoring %s event for %s/%s — repo filtered", event, owner, repo)
+        return "ignored"
 
     if event == "pull_request":
         action = payload.get("action", "")

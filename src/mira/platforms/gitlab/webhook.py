@@ -24,6 +24,7 @@ from mira.platforms.mentions import (
     author_is_filtered,
     has_mention,
     mention_names,
+    repo_is_filtered,
     strip_mentions,
 )
 from mira.providers import create_provider
@@ -342,13 +343,18 @@ async def dispatch_gitlab_event(
     bot_identity = await auth.get_bot_identity()
     if actor and bot_identity and actor == bot_identity:
         return "ignored"
+    cfg = load_config()
+
+    owner, repo = _split_project_path(payload.get("project", {}).get("path_with_namespace", ""))
+    if repo_is_filtered(owner, repo, cfg.filter.allowed_repos, cfg.filter.blocked_repos):
+        logger.debug("Ignoring %s for %s/%s — repo filtered", event, owner, repo)
+        return "ignored"
 
     if event == "Merge Request Hook":
         attrs = payload.get("object_attributes", {})
         action = attrs.get("action", "")
         # 'update' fires for many reasons; only review when new commits landed.
         if action in ("open", "reopen") or (action == "update" and attrs.get("oldrev")):
-            cfg = load_config()
             if author_is_filtered(actor, cfg.filter.allowed_authors, cfg.filter.blocked_authors):
                 logger.debug("MR skipped — author %s filtered by author filter", actor)
                 return "ignored"
@@ -381,7 +387,6 @@ async def dispatch_gitlab_event(
         ref = payload.get("ref", "")
         default_branch = payload.get("project", {}).get("default_branch", "main")
         if ref == f"refs/heads/{default_branch}":
-            cfg = load_config()
             if author_is_filtered(actor, cfg.filter.allowed_authors, cfg.filter.blocked_authors):
                 logger.debug("push skipped — author %s filtered", actor)
                 return "ignored"
