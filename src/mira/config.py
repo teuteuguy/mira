@@ -147,6 +147,14 @@ class FilterConfig(BaseModel):
     # stripped by the dispatcher check so that `dependabot` here matches
     # `dependabot[bot]` in a webhook payload.
     blocked_authors: list[str] = Field(default_factory=list)
+    # Only auto-review and respond in repos matching one of these patterns.
+    # Empty list = all repos (default). Patterns are case-insensitive
+    # `fnmatch` globs against `<owner>/<repo>` (e.g. `acme/*`; owner may be a
+    # nested GitLab group). `project:<KEY>` matches a Bitbucket project key.
+    allowed_repos: list[str] = Field(default_factory=list)
+    # Never auto-review or respond in repos matching these patterns. Takes
+    # precedence over allowed_repos. Same pattern syntax.
+    blocked_repos: list[str] = Field(default_factory=list)
 
 
 class CommandOverrideConfig(BaseModel):
