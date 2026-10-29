@@ -93,6 +93,8 @@ async def test_resume_only_picks_repos_stuck_indexing():
 
     async def fake_index_repo(**kw):
         indexed.append(kw["repo"])
+        # A resume must skip already-summarized files, never force a rebuild.
+        assert kw["full"] is False
         return 1
 
     store = MagicMock()
