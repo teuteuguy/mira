@@ -352,8 +352,12 @@ async def index_repo(
     branch: str | None = None,
     cancel_check: Callable[[], bool] | None = None,
     fetcher: RepoFetcher | None = None,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> int:
     """Index a full repository. Returns number of files indexed.
+
+    ``on_progress(files_done, files_total)`` is called once the files to index
+    are known and after every summarization batch.
 
     Args:
         full: If True, re-index all files regardless of content hash.
@@ -481,6 +485,19 @@ async def index_repo(
     tasks = [asyncio.create_task(_summarize_batch(batch, llm, llm_sem)) for batch in batches]
 
     indexed_count = len(trivial_pairs)
+    files_total = len(trivial_pairs) + len(file_pairs)
+    last_logged_decile = -1
+
+    def _report() -> None:
+        nonlocal last_logged_decile
+        if on_progress:
+            on_progress(indexed_count, files_total)
+        decile = indexed_count * 10 // files_total if files_total else 10
+        if decile > last_logged_decile:
+            last_logged_decile = decile
+            logger.info("Indexing %s/%s: %d/%d files", owner, repo, indexed_count, files_total)
+
+    _report()
     try:
         for fut in asyncio.as_completed(tasks):
             if cancel_check and cancel_check():
@@ -508,6 +525,7 @@ async def index_repo(
                     indexed_count += 1
                 except Exception as exc:
                     logger.warning("Skipping file %s in %s/%s: %s", path, owner, repo, exc)
+            _report()
     except IndexingCancelled:
         raise
 
