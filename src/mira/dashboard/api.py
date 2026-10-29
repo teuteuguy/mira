@@ -475,7 +475,20 @@ class SetupRequest(BaseModel):
     index_mode: str  # "full" or "light"
 
 
-async def _run_initial_indexing(default_mode: str) -> None:
+async def resume_interrupted_indexing() -> None:
+    """Re-run indexing for repos left in ``indexing`` by a restart.
+
+    Indexing runs inside the server process, so a deploy or crash drops any
+    job in flight and leaves its repo stuck in ``indexing``. Files already
+    summarized are skipped as unchanged (content hash), so resuming only pays
+    for what is left. Repos that are merely ``pending`` are left alone.
+    """
+    await _run_initial_indexing("", statuses=("indexing",))
+
+
+async def _run_initial_indexing(
+    default_mode: str, statuses: tuple[str, ...] = ("pending", "indexing")
+) -> None:
     """Index repos that `complete_setup` just enabled.
 
     Filtering on ``status`` is what scopes this to "just this setup batch" —
@@ -485,7 +498,7 @@ async def _run_initial_indexing(default_mode: str) -> None:
     from mira.index.status import tracker
 
     repos = _app_db.list_repos()
-    to_index = [r for r in repos if r.index_mode != "none" and r.status in ("pending", "indexing")]
+    to_index = [r for r in repos if r.index_mode != "none" and r.status in statuses]
 
     if not to_index:
         return
@@ -552,6 +565,7 @@ async def _run_initial_indexing(default_mode: str) -> None:
                 store=store,
                 llm=llm,
                 full=(repo_record.index_mode == "full"),
+                on_progress=lambda done, total, name=full_name: tracker.progress(name, done, total),
             )
             # `count` is files re-indexed this run, not the store total.
             # Read the true total before closing to keep the DB in sync.

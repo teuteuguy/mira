@@ -50,6 +50,10 @@ class LLMConfig(BaseModel):
     # `reasoning_effort` is the resolved value the provider reads (set by
     # `llm_config_for`, the same way `model` is resolved from `review_model`).
     review_reasoning_effort: str | None = None
+    # Same, for the indexing tier (file/directory summaries, self-critique and
+    # other helper passes). Unset = no reasoning field sent, so models that
+    # reason by default (e.g. at "max") do so on every indexing call.
+    indexing_reasoning_effort: str | None = None
     reasoning_effort: str | None = None
     temperature: float = 0.2
     max_tokens: int = 4096
