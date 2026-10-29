@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import os
 from collections.abc import Generator
@@ -565,7 +566,7 @@ async def _run_initial_indexing(
                 store=store,
                 llm=llm,
                 full=(repo_record.index_mode == "full"),
-                on_progress=lambda done, total, name=full_name: tracker.progress(name, done, total),
+                on_progress=functools.partial(tracker.progress, full_name),
             )
             # `count` is files re-indexed this run, not the store total.
             # Read the true total before closing to keep the DB in sync.
