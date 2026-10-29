@@ -174,7 +174,9 @@ class CommandsConfig(BaseModel):
     """Who may invoke interactive @-mention commands.
 
     The default posture is repo writers/admins only. ``allowed_users`` grants
-    command access explicitly (including to read-only users), while
+    command access explicitly (including to read-only users; ``"*"`` grants it
+    to anyone who can comment, for platforms where the bot cannot look up
+    repo permissions), while
     ``blocked_users`` always denies. Per-command overrides replace the global
     user allowlist for that command only and may add command-specific denials;
     the write-access gate stays global.
