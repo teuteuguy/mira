@@ -214,8 +214,23 @@ class WalkthroughResult:
         dashboard_url: str = "",
         overlaps: list[OverlapFinding] | None = None,
         failure_notice: str | None = None,
+        dismissed_findings: int | None = None,
+        unverified_findings: list[dict] | None = None,
     ) -> str:
-        """Render as a markdown PR comment."""
+        """Render as a markdown PR comment.
+
+        ``dismissed_findings`` counts drafts the self-critique dropped. Only a
+        completed review passes it (``None`` elsewhere: placeholder, failure);
+        it enables the explicit "no issues" verdict when nothing was posted.
+        ``unverified_findings`` are the ones it graded "plausible" (dicts with
+        ``path``, ``line``, ``title``), listed as not-verified hints.
+        """
+        verdict_applies = (
+            dismissed_findings is not None
+            and not in_progress
+            and not failure_notice
+            and not total_comments
+        )
         parts = [WALKTHROUGH_MARKER, "## Mira PR Walkthrough", ""]
         parts.append(self.summary)
 
@@ -240,6 +255,10 @@ class WalkthroughResult:
             filled = "\u25c9" * score  # ◉
             empty = "\u25cb" * (5 - score)  # ○
             label = cs.label if cs.label else ""
+            # The score is set before self-critique; once every finding is
+            # dropped, a "with fixes" label promises fixes nobody can see.
+            if verdict_applies:
+                label = "No issues flagged"
             parts.append("")
             parts.append(
                 f"<details>\n"
@@ -252,6 +271,27 @@ class WalkthroughResult:
                 parts.append("**Key files to review:**")
                 for ki in key_issues:
                     parts.append(f"- `{ki.path}:{ki.line}` — {ki.issue}")
+            parts.append("")
+            parts.append("</details>")
+
+        if unverified_findings and not in_progress:
+            shown_findings = unverified_findings[:5]
+            parts.append("")
+            parts.append(
+                "<details>\n"
+                f"<summary><b>Worth a look (not verified)</b> \u2014 {len(unverified_findings)}</summary>\n"
+            )
+            parts.append(
+                "_Possible issues Mira's self-check could not confirm from the diff. "
+                "Not posted as comments; check them yourself._"
+            )
+            parts.append("")
+            for f in shown_findings:
+                parts.append(
+                    f"- `{f.get('path', '')}:{f.get('line', 0)}` \u2014 {f.get('title', '')}"
+                )
+            if len(unverified_findings) > len(shown_findings):
+                parts.append(f"- _\u2026and {len(unverified_findings) - len(shown_findings)} more_")
             parts.append("")
             parts.append("</details>")
 
@@ -314,6 +354,15 @@ class WalkthroughResult:
                 stats_parts.append(
                     f"{existing_issues} unresolved thread{'s' if existing_issues != 1 else ''}"
                 )
+            if verdict_applies:
+                verdict = "\u2705 **No issues to flag.**"
+                if dismissed_findings:
+                    verdict += (
+                        f" {dismissed_findings} candidate finding"
+                        f"{'s' if dismissed_findings != 1 else ''} dismissed by Mira's self-check."
+                    )
+                parts.append("")
+                parts.append(verdict)
             if stats_parts:
                 separator = " \u00b7 "
                 parts.append("")
