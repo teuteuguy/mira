@@ -116,6 +116,18 @@ def create_app(
                 )
             )
 
+        # Pick up indexing jobs a previous process was killed in the middle of.
+        from mira.dashboard.api import resume_interrupted_indexing
+
+        resume_task = asyncio.create_task(resume_interrupted_indexing())
+        resume_task.add_done_callback(
+            lambda t: (
+                logger.warning("Indexing resume failed: %s", t.exception())
+                if not t.cancelled() and t.exception()
+                else None
+            )
+        )
+
         from mira.security.poller import run_forever as run_vuln_poller
 
         vuln_task = asyncio.create_task(run_vuln_poller())

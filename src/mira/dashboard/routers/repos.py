@@ -477,6 +477,7 @@ async def trigger_index(owner: str, repo: str, request: Request, full: bool = Fa
                 llm=llm,
                 full=full,
                 cancel_check=lambda: tracker.is_cancel_requested(full_name),
+                on_progress=lambda done, total: tracker.progress(full_name, done, total),
             )
             # Real indexing run finished — bump last_indexed_at so the
             # dashboard's "Indexed N ago" reflects this completion.

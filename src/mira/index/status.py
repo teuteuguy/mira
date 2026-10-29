@@ -35,11 +35,13 @@ class IndexingTracker:
                 started_at=time.time(),
             )
 
-    def progress(self, repo: str, files_done: int) -> None:
+    def progress(self, repo: str, files_done: int, files_total: int | None = None) -> None:
         with self._lock:
             job = self._jobs.get(repo)
             if job:
                 job.files_done = files_done
+                if files_total is not None:
+                    job.files_total = files_total
 
     def complete(self, repo: str, files_done: int) -> None:
         with self._lock:
