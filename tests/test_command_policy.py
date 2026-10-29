@@ -226,6 +226,15 @@ async def test_non_unique_names_allowlist_matches_account_id():
 
 
 @pytest.mark.asyncio
+async def test_wildcard_allows_anyone_without_permission_lookup():
+    config = _config(allowed_users=["*"])
+    provider = _Provider(error=RuntimeError("permission lookup forbidden"))
+    assert await _allowed(config, "ask", "Timothee Cruse", provider)
+    assert await _allowed(config, "review", "someone-else", provider)
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("entry", ["alice", "557058:alice"])
 async def test_non_unique_names_block_matches_name_or_account_id(entry):
     provider = _NamesNotUniqueProvider("write")
@@ -246,3 +255,17 @@ async def test_permission_lookup_receives_account_id():
     provider = _NamesNotUniqueProvider("write")
     assert await _allowed_by_id(MiraConfig(), "alice", "557058:alice", provider)
     assert provider.calls == [("acme", "widgets", "alice", "557058:alice")]
+
+
+@pytest.mark.asyncio
+async def test_wildcard_never_overrides_blocked_users():
+    config = _config(allowed_users=["*"], blocked_users=["mallory"])
+    assert not await _allowed(config, "ask", "mallory", _Provider())
+    per_command = _config(allowed_users=["*"], ask=CommandOverrideConfig(blocked_users=["eve"]))
+    assert not await _allowed(per_command, "ask", "eve", _Provider())
+    assert await _allowed(per_command, "review", "eve", _Provider())
+
+
+@pytest.mark.asyncio
+async def test_wildcard_ignores_empty_actor():
+    assert not await _allowed(_config(allowed_users=["*"]), "ask", "", _Provider())
