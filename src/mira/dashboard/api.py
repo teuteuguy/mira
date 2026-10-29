@@ -484,11 +484,13 @@ async def resume_interrupted_indexing() -> None:
     summarized are skipped as unchanged (content hash), so resuming only pays
     for what is left. Repos that are merely ``pending`` are left alone.
     """
-    await _run_initial_indexing("", statuses=("indexing",))
+    await _run_initial_indexing("", statuses=("indexing",), rebuild=False)
 
 
 async def _run_initial_indexing(
-    default_mode: str, statuses: tuple[str, ...] = ("pending", "indexing")
+    default_mode: str,
+    statuses: tuple[str, ...] = ("pending", "indexing"),
+    rebuild: bool = True,
 ) -> None:
     """Index repos that `complete_setup` just enabled.
 
@@ -565,7 +567,9 @@ async def _run_initial_indexing(
                 config=config,
                 store=store,
                 llm=llm,
-                full=(repo_record.index_mode == "full"),
+                # index_mode "full" means "index everything", not "ignore
+                # content hashes"; a resume must keep what was already done.
+                full=rebuild and repo_record.index_mode == "full",
                 on_progress=functools.partial(tracker.progress, full_name),
             )
             # `count` is files re-indexed this run, not the store total.
