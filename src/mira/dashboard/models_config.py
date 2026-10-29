@@ -172,6 +172,8 @@ def llm_config_for(purpose: str, base: LLMConfig) -> LLMConfig:
     if purpose == "indexing":
         resolved = get_indexing_model(base, db_model)
         config_model = base.indexing_model
+        effort = base.indexing_reasoning_effort
+        thinking_mode = effort if effort and effort != "off" else None
     elif purpose == "security":
         resolved = get_security_model(base, db_model, db_review)
         config_model = base.security_model or base.review_model
