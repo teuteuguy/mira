@@ -21,11 +21,20 @@ def _normalized(value: str) -> str:
     return value.strip().lower()
 
 
+_ANYONE = "*"
+
+
 def _matches(login: str, names: list[str]) -> bool:
-    """Case-insensitive match, also accepting the un-suffixed bot login."""
+    """Case-insensitive match, also accepting the un-suffixed bot login.
+
+    ``"*"`` in ``names`` matches any non-empty login. Blocked lists are always
+    checked before allowlists, so a blocked user stays blocked.
+    """
     if not login:
         return False
     normalized_names = {_normalized(name) for name in names}
+    if _ANYONE in normalized_names:
+        return True
     variants = {_normalized(login), _normalized(login.removesuffix("[bot]"))}
     return any(variant in normalized_names for variant in variants)
 

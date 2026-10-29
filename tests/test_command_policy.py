@@ -186,3 +186,26 @@ async def test_allowlist_matching_is_case_insensitive_and_strips_bot_suffix():
 async def test_unknown_command_denied():
     provider = _Provider("write")
     assert not await _allowed(MiraConfig(), "delete-everything", "alice", provider)
+
+
+@pytest.mark.asyncio
+async def test_wildcard_allows_anyone_without_permission_lookup():
+    config = _config(allowed_users=["*"])
+    provider = _Provider(error=RuntimeError("permission lookup forbidden"))
+    assert await _allowed(config, "ask", "Timothee Cruse", provider)
+    assert await _allowed(config, "review", "someone-else", provider)
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_wildcard_never_overrides_blocked_users():
+    config = _config(allowed_users=["*"], blocked_users=["mallory"])
+    assert not await _allowed(config, "ask", "mallory", _Provider())
+    per_command = _config(allowed_users=["*"], ask=CommandOverrideConfig(blocked_users=["eve"]))
+    assert not await _allowed(per_command, "ask", "eve", _Provider())
+    assert await _allowed(per_command, "review", "eve", _Provider())
+
+
+@pytest.mark.asyncio
+async def test_wildcard_ignores_empty_actor():
+    assert not await _allowed(_config(allowed_users=["*"]), "ask", "", _Provider())
