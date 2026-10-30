@@ -214,13 +214,12 @@ class WalkthroughResult:
         dashboard_url: str = "",
         overlaps: list[OverlapFinding] | None = None,
         failure_notice: str | None = None,
-        unverified_findings: list[dict] | None = None,
+        unverified_findings: list[ReviewComment] | None = None,
     ) -> str:
         """Render as a markdown PR comment.
 
         ``unverified_findings`` are draft findings the self-critique graded
-        "plausible" but did not post (dicts with ``path``, ``line``,
-        ``title``); they are listed as not-verified hints.
+        "plausible" but did not post; they are listed as not-verified hints.
         """
         parts = [WALKTHROUGH_MARKER, "## Mira PR Walkthrough", ""]
         parts.append(self.summary)
@@ -275,9 +274,7 @@ class WalkthroughResult:
             )
             parts.append("")
             for f in shown_findings:
-                parts.append(
-                    f"- `{f.get('path', '')}:{f.get('line', 0)}` \u2014 {f.get('title', '')}"
-                )
+                parts.append(f"- `{f.path}:{f.line}` \u2014 {f.title}")
             if len(unverified_findings) > len(shown_findings):
                 parts.append(f"- _\u2026and {len(unverified_findings) - len(shown_findings)} more_")
             parts.append("")
@@ -433,6 +430,9 @@ class ReviewResult:
     # filter/critique stage, so a benchmark run can show whether a missed
     # finding was never drafted or drafted-then-dropped. Not posted anywhere.
     audit: list[dict] = field(default_factory=list)
+    # Draft findings self-critique graded "plausible" but did not post. Shown
+    # in the walkthrough only with review.show_unverified_findings.
+    unverified_findings: list[ReviewComment] = field(default_factory=list)
 
 
 @dataclass

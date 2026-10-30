@@ -126,17 +126,20 @@ def _clamp_confidence_to_findings(
     """Tighten the walkthrough confidence score based on actual review findings.
 
     The LLM rates confidence before chunked review runs, so it hasn't yet seen
-    blockers or warnings discovered later. This never *raises* the score — it
-    only lowers it when the findings contradict an optimistic initial read.
+    blockers or warnings discovered later. It lowers the score when the
+    findings contradict an optimistic initial read, and settles it when
+    nothing posted (see the last rule).
 
     Rubric (1=major concerns, 5=safe to merge):
       - ≥1 blocker → score ≤ 2
       - ≥3 warnings (and no blocker) → score ≤ 3
-      - no comments posted and score ≥ 3 → label "No issues to flag" ("No
-        confirmed issues" when ``unverified`` plausible drops are listed). The
-        score is kept; the LLM's label (e.g. "Safe with minor fixes") may
-        promise fixes that filtering or self-critique removed. A low score is
-        left alone: its concerns live in the reason, not in line comments.
+      - no comments posted and score ≥ 3 → recomputed from what posted:
+        5/5 "No issues to flag", or 4/5 "No confirmed issues" when
+        ``unverified`` plausible drops are listed, with a neutral reason. The
+        LLM's own label (e.g. "Safe with minor fixes") may promise fixes that
+        filtering or self-critique removed, so this rule may *raise* a score.
+        A score ≤ 2 is left alone: its concerns live in the reason (design or
+        risk), not in line comments, and must not be rewritten away.
     """
     cs = walkthrough.confidence_score
     if cs is None:
@@ -158,7 +161,14 @@ def _clamp_confidence_to_findings(
         cs.label = "Needs review"
         cs.reason = f"Found {warnings} warnings that need attention before merge."
     elif not comments and cs.score >= 3:
-        cs.label = "No confirmed issues" if unverified else "No issues to flag"
+        if unverified:
+            cs.score = 4
+            cs.label = "No confirmed issues"
+            cs.reason = "No confirmed issues; possible issues are listed below for a manual check."
+        else:
+            cs.score = 5
+            cs.label = "No issues to flag"
+            cs.reason = "No issues found in the reviewed changes."
 
     if cs.score != original:
         logger.info(
@@ -168,15 +178,6 @@ def _clamp_confidence_to_findings(
             blockers,
             warnings,
         )
-
-
-def _unverified_findings(audit: list[dict]) -> list[dict]:
-    """Self-critique drops graded "plausible" (not "unsupported"), in audit order."""
-    return [
-        a
-        for a in audit
-        if a.get("stage") == "self_critique" and str(a.get("reason", "")).startswith("plausible")
-    ]
 
 
 # Paths excluded from the dedicated security pass — see core/passes.py.
@@ -909,9 +910,7 @@ class ReviewEngine:
 
         if result.walkthrough:
             unverified = (
-                _unverified_findings(result.audit)
-                if self.config.review.show_unverified_findings
-                else []
+                result.unverified_findings if self.config.review.show_unverified_findings else []
             )
             _clamp_confidence_to_findings(result.walkthrough, result.comments, len(unverified))
             if self.dry_run:
@@ -1455,6 +1454,7 @@ class ReviewEngine:
         base_existing = list(existing_comments) if existing_comments else []
         semaphore = _asyncio.Semaphore(self.config.review.max_concurrent_chunks)
         audit: list[dict] = []
+        held_back: list[ReviewComment] = []
 
         async def _review_chunk(
             idx: int,
@@ -1734,6 +1734,7 @@ class ReviewEngine:
                     indexing_llm=self.indexing_llm,
                     diff_files=critique_files,
                     audit=audit,
+                    held_back=held_back,
                 )
             except Exception as exc:
                 logger.warning("Self-critique pass failed, keeping original comments: %s", exc)
@@ -1797,4 +1798,5 @@ class ReviewEngine:
             skipped_paths=skipped_paths_only,
             total_paths=all_paths,
             audit=audit,
+            unverified_findings=held_back,
         )

@@ -543,10 +543,10 @@ class TestReviewEngine:
             ),
         )
         _clamp_confidence_to_findings(wt, [])
-        # Nothing survived filtering/self-critique: don't promise "fixes".
+        # Nothing survived filtering/self-critique: recompute from what posted.
         assert wt.confidence_score.label == "No issues to flag"
-        assert wt.confidence_score.score == 4
-        assert wt.confidence_score.reason == "well tested"
+        assert wt.confidence_score.score == 5
+        assert wt.confidence_score.reason == "No issues found in the reviewed changes."
 
     def test_clamp_comments_keep_llm_label(self):
         wt = WalkthroughResult(
