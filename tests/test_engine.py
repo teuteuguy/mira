@@ -534,6 +534,31 @@ class TestReviewEngine:
         assert wt.confidence_score.score == 1
         assert wt.confidence_score.label == "Major concerns"
 
+    def test_clamp_no_comments_says_no_issues(self):
+        wt = WalkthroughResult(
+            confidence_score=WalkthroughConfidenceScore(
+                score=4,
+                label="Safe with minor fixes",
+                reason="well tested",
+            ),
+        )
+        _clamp_confidence_to_findings(wt, [])
+        # Nothing survived filtering/self-critique: don't promise "fixes".
+        assert wt.confidence_score.label == "No issues to flag"
+        assert wt.confidence_score.score == 4
+        assert wt.confidence_score.reason == "well tested"
+
+    def test_clamp_comments_keep_llm_label(self):
+        wt = WalkthroughResult(
+            confidence_score=WalkthroughConfidenceScore(
+                score=4,
+                label="Safe with minor fixes",
+                reason="r",
+            ),
+        )
+        _clamp_confidence_to_findings(wt, [self._comment(Severity.SUGGESTION)])
+        assert wt.confidence_score.label == "Safe with minor fixes"
+
     def test_clamp_blocker_beats_warnings(self):
         wt = WalkthroughResult(
             confidence_score=WalkthroughConfidenceScore(

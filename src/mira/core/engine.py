@@ -131,6 +131,10 @@ def _clamp_confidence_to_findings(
     Rubric (1=major concerns, 5=safe to merge):
       - ≥1 blocker → score ≤ 2
       - ≥3 warnings (and no blocker) → score ≤ 3
+      - no comments posted and score ≥ 3 → label "No issues to flag". The
+        score is kept; the LLM's label (e.g. "Safe with minor fixes") may
+        promise fixes that filtering or self-critique removed. A low score is
+        left alone: its concerns live in the reason, not in line comments.
     """
     cs = walkthrough.confidence_score
     if cs is None:
@@ -151,6 +155,8 @@ def _clamp_confidence_to_findings(
         cs.score = 3
         cs.label = "Needs review"
         cs.reason = f"Found {warnings} warnings that need attention before merge."
+    elif not comments and cs.score >= 3:
+        cs.label = "No issues to flag"
 
     if cs.score != original:
         logger.info(
