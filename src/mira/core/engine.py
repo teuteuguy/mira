@@ -121,6 +121,7 @@ def compose_pr_description(current_body: str, summary_block: str, mode: str) -> 
 def _clamp_confidence_to_findings(
     walkthrough: WalkthroughResult,
     comments: list[ReviewComment],
+    unverified: int = 0,
 ) -> None:
     """Tighten the walkthrough confidence score based on actual review findings.
 
@@ -131,7 +132,8 @@ def _clamp_confidence_to_findings(
     Rubric (1=major concerns, 5=safe to merge):
       - ≥1 blocker → score ≤ 2
       - ≥3 warnings (and no blocker) → score ≤ 3
-      - no comments posted and score ≥ 3 → label "No issues to flag". The
+      - no comments posted and score ≥ 3 → label "No issues to flag" ("No
+        confirmed issues" when ``unverified`` plausible drops are listed). The
         score is kept; the LLM's label (e.g. "Safe with minor fixes") may
         promise fixes that filtering or self-critique removed. A low score is
         left alone: its concerns live in the reason, not in line comments.
@@ -156,7 +158,7 @@ def _clamp_confidence_to_findings(
         cs.label = "Needs review"
         cs.reason = f"Found {warnings} warnings that need attention before merge."
     elif not comments and cs.score >= 3:
-        cs.label = "No issues to flag"
+        cs.label = "No confirmed issues" if unverified else "No issues to flag"
 
     if cs.score != original:
         logger.info(
@@ -166,6 +168,15 @@ def _clamp_confidence_to_findings(
             blockers,
             warnings,
         )
+
+
+def _unverified_findings(audit: list[dict]) -> list[dict]:
+    """Self-critique drops graded "plausible" (not "unsupported"), in audit order."""
+    return [
+        a
+        for a in audit
+        if a.get("stage") == "self_critique" and str(a.get("reason", "")).startswith("plausible")
+    ]
 
 
 # Paths excluded from the dedicated security pass — see core/passes.py.
@@ -897,7 +908,12 @@ class ReviewEngine:
                     result.key_issues = _drop_orphan_key_issues(result.key_issues, kept)
 
         if result.walkthrough:
-            _clamp_confidence_to_findings(result.walkthrough, result.comments)
+            unverified = (
+                _unverified_findings(result.audit)
+                if self.config.review.show_unverified_findings
+                else []
+            )
+            _clamp_confidence_to_findings(result.walkthrough, result.comments, len(unverified))
             if self.dry_run:
                 logger.info("Dry run: skipping walkthrough comment posting")
             else:
@@ -969,6 +985,7 @@ class ReviewEngine:
                         index_was_empty=getattr(self, "_index_was_empty", False),
                         dashboard_url=_os.environ.get("MIRA_DASHBOARD_URL", ""),
                         overlaps=overlaps or None,
+                        unverified_findings=unverified or None,
                     )
                     comment_id = placeholder_id
                     if comment_id is None:
