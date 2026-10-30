@@ -950,16 +950,6 @@ class ReviewEngine:
 
                     import os as _os
 
-                    critique_drops = [a for a in result.audit if a.get("stage") == "self_critique"]
-                    unverified = (
-                        [
-                            a
-                            for a in critique_drops
-                            if str(a.get("reason", "")).startswith("plausible")
-                        ]
-                        if self.config.review.show_unverified_findings
-                        else []
-                    )
                     markdown = result.walkthrough.to_markdown(
                         bot_name=self.bot_name,
                         review_stats=stats,
@@ -973,8 +963,6 @@ class ReviewEngine:
                         index_was_empty=getattr(self, "_index_was_empty", False),
                         dashboard_url=_os.environ.get("MIRA_DASHBOARD_URL", ""),
                         overlaps=overlaps or None,
-                        dismissed_findings=len(critique_drops),
-                        unverified_findings=unverified or None,
                     )
                     comment_id = placeholder_id
                     if comment_id is None:
