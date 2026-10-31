@@ -269,3 +269,13 @@ async def test_wildcard_never_overrides_blocked_users():
 @pytest.mark.asyncio
 async def test_wildcard_ignores_empty_actor():
     assert not await _allowed(_config(allowed_users=["*"]), "ask", "", _Provider())
+
+
+@pytest.mark.asyncio
+async def test_non_unique_names_wildcard_allows_any_account():
+    """The "*" allowlist still grants every commenter that has an account id."""
+    provider = _NamesNotUniqueProvider(error=RuntimeError("permission lookup forbidden"))
+    config = _config(allowed_users=["*"], blocked_users=["mallory"])
+    assert await _allowed_by_id(config, "alice", "557058:alice", provider)
+    assert not await _allowed_by_id(config, "mallory", "557058:mallory", provider)
+    assert provider.calls == []
