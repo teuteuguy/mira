@@ -101,11 +101,32 @@ def _repair_json(text: str) -> str:
     return _balance_json(text)
 
 
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def scrub_surrogates(value: object) -> object:
+    """Replace lone UTF-16 surrogates in parsed model output with U+FFFD.
+
+    Models sometimes emit half of an escaped surrogate pair (``"\\ud83d"``
+    without its low half, e.g. a truncated emoji). ``json.loads`` decodes it
+    to a lone surrogate, which cannot be encoded as UTF-8, so posting the text
+    to the code host later fails with "surrogates not allowed". Valid pairs
+    are already combined by ``json.loads``, so any surrogate left is lone.
+    """
+    if isinstance(value, str):
+        return _LONE_SURROGATE.sub("\ufffd", value)
+    if isinstance(value, list):
+        return [scrub_surrogates(item) for item in value]
+    if isinstance(value, dict):
+        return {scrub_surrogates(k): scrub_surrogates(v) for k, v in value.items()}
+    return value
+
+
 def loads_lenient(text: str) -> object | None:
     """Parse JSON, repairing leaked tool-call XML / missing braces. None on failure."""
     for candidate in (text, _repair_json(text)):
         try:
-            return json.loads(candidate, strict=False)
+            return scrub_surrogates(json.loads(candidate, strict=False))
         except (json.JSONDecodeError, TypeError):
             continue
     return None
@@ -308,11 +329,11 @@ def _unstring_nested_json(data: dict) -> dict:
 def _try_load_json(text: str) -> object | None:
     """Best-effort parse: strict, then lenient (control chars allowed)."""
     try:
-        return json.loads(text)
+        return scrub_surrogates(json.loads(text))
     except (json.JSONDecodeError, TypeError):
         pass
     try:
-        return json.loads(text, strict=False)
+        return scrub_surrogates(json.loads(text, strict=False))
     except (json.JSONDecodeError, TypeError):
         return None
 

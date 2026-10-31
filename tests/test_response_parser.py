@@ -386,3 +386,43 @@ class TestSuggestionWithoutBody:
         response = parse_llm_response(data)
         comments = convert_to_review_comments(response, valid_paths={"a.py"})
         assert len(comments) == 1
+
+
+class TestScrubSurrogates:
+    """Half of an escaped surrogate pair (a truncated emoji) must not reach the code host."""
+
+    def test_lone_surrogate_replaced_and_valid_pair_kept(self):
+        from mira.llm.response_parser import loads_lenient
+
+        data = loads_lenient('{"summary": "fast \\ud83d path \\ud83d\\ude80 ok"}')
+        assert data == {"summary": "fast � path \U0001f680 ok"}
+        data["summary"].encode("utf-8")
+
+    def test_nested_values_and_keys(self):
+        from mira.llm.response_parser import scrub_surrogates
+
+        raw = json.loads('{"a\\udc00": [{"b": "x\\udfff"}, 1, null, "ok"]}')
+        assert scrub_surrogates(raw) == {"a�": [{"b": "x�"}, 1, None, "ok"]}
+
+    def test_review_comment_text_is_encodable(self):
+        raw = json.dumps(
+            {
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 1,
+                        "end_line": None,
+                        "severity": "warning",
+                        "category": "bug",
+                        "title": "Broken \ud83d emoji",
+                        "body": "Body \ud83d",
+                        "confidence": 0.9,
+                    }
+                ],
+                "summary": "s",
+            }
+        )
+        result = parse_llm_response(raw)
+        comment = result.comments[0]
+        assert "�" in comment.title
+        (comment.title + comment.body).encode("utf-8")

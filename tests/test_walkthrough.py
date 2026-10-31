@@ -554,3 +554,11 @@ def test_markdown_with_skipped_files_is_utf8_encodable():
     )
     assert "### \U0001f4cb Reviewed 1 of 2 files" in md
     md.encode("utf-8")
+
+
+def test_walkthrough_with_lone_surrogate_is_encodable():
+    """A truncated emoji escape in the walkthrough must still render and encode."""
+    raw = '{"summary": "Adds a CLI \\ud83d shell", "change_groups": []}'
+    result = parse_walkthrough_response(raw)
+    assert result.summary == "Adds a CLI � shell"
+    result.summary.encode("utf-8")
