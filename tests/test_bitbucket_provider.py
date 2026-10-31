@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from unittest.mock import patch
 
 import httpx
@@ -1046,3 +1047,30 @@ class TestReviewBuildStatus:
         with ctx:
             await BitbucketProvider("tok").start_check_run(_pr_info(), summary="x" * 400)
         assert len(calls[0][2]["description"]) == 255
+
+
+class TestSurrogateRepair:
+    """Bodies sent to Bitbucket must be UTF-8 encodable ("surrogates not allowed")."""
+
+    def test_split_pair_rejoined_and_lone_half_replaced(self):
+        from mira.providers.bitbucket import to_bitbucket_markdown
+
+        out = to_bitbucket_markdown("risk 🔴 here, lone \ud83d end")
+        assert out == "risk \U0001f534 here, lone � end"
+        out.encode("utf-8")
+
+    def test_clean_body_unchanged(self):
+        from mira.providers.bitbucket import to_bitbucket_markdown
+
+        assert to_bitbucket_markdown("plain \U0001f534 text") == "plain \U0001f534 text"
+
+    @pytest.mark.asyncio
+    async def test_update_comment_sends_encodable_body(self):
+        def handler(method, url, **kw):
+            json.dumps(kw["json"], ensure_ascii=False).encode("utf-8")
+            return _FakeResp(json_data={})
+
+        ctx, calls = _patch(handler)
+        with ctx:
+            await BitbucketProvider("tok").update_comment(_pr_info(), 5, "x 🔴 y")
+        assert calls[-1][2]["json"]["content"]["raw"] == "x \U0001f534 y"

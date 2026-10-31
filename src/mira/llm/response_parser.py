@@ -114,7 +114,10 @@ def scrub_surrogates(value: object) -> object:
     are already combined by ``json.loads``, so any surrogate left is lone.
     """
     if isinstance(value, str):
-        return _LONE_SURROGATE.sub("\ufffd", value)
+        if _LONE_SURROGATE.search(value) is None:
+            return value
+        # Rejoin adjacent high+low halves; a lone half becomes U+FFFD.
+        return value.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
     if isinstance(value, list):
         return [scrub_surrogates(item) for item in value]
     if isinstance(value, dict):
