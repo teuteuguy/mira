@@ -16,6 +16,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Walkthrough verdict reflects what was posted.** When filtering and self-critique leave no comments, a walkthrough the LLM scored 3 or higher now shows 5/5 "No issues to flag" with a neutral reason, instead of a label such as "Safe with minor fixes" promising fixes the PR never shows. Scores of 2 or lower are unchanged, since their concerns are in the reason rather than in line comments.
 - **GitHub App permission: `checks: read & write`** (newly required; earlier releases needed no check permission). Existing installations must add the permission to see review status updates; a missing permission is logged and the review proceeds without the status.
 
+### Fixed
+
+- **Model output with a truncated emoji no longer breaks posting.** A model sometimes emits half of an escaped surrogate pair (`\ud83d` without its low half). Parsing turned it into a lone surrogate that cannot be encoded as UTF-8, so posting the walkthrough or a comment failed with "surrogates not allowed" and the PR kept showing "Reviewing this PR…". Lone surrogates in parsed review and walkthrough output are now replaced with U+FFFD.
+
 ## [0.10.1] — 2026-10-28
 
 ### Fixed

@@ -536,3 +536,11 @@ class TestBuildReviewStats:
         comments = [self._make_comment(Severity.SUGGESTION)] * 3
         stats = build_review_stats(comments)
         assert stats == {Severity.SUGGESTION: 3}
+
+
+def test_walkthrough_with_lone_surrogate_is_encodable():
+    """A truncated emoji escape in the walkthrough must still render and encode."""
+    raw = '{"summary": "Adds a CLI \\ud83d shell", "change_groups": []}'
+    result = parse_walkthrough_response(raw)
+    assert result.summary == "Adds a CLI � shell"
+    result.summary.encode("utf-8")
