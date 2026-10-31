@@ -9,9 +9,12 @@ the provider classes.
 from __future__ import annotations
 
 import html
+import logging
 import re
 
 from mira.models import KeyIssue, ReviewComment, Severity
+
+logger = logging.getLogger(__name__)
 
 _CATEGORY_DISPLAY: dict[str, tuple[str, str]] = {
     "bug": ("\U0001f41b", "Bug"),
@@ -214,3 +217,26 @@ def format_comment_body(comment: ReviewComment, bot_name: str = "miracodeai") ->
     parts.append(f"> Not useful? Reply `@{bot_name} reject` to dismiss this suggestion.")
 
     return "\n".join(parts)
+
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def repair_surrogates(text: str, *, context: str = "") -> str:
+    """Make ``text`` UTF-8 encodable by repairing UTF-16 surrogates.
+
+    A str can end up holding an emoji as its two UTF-16 halves, or only one
+    half, which UTF-8 cannot encode: posting it fails with "surrogates not
+    allowed". Adjacent high+low halves are rejoined into the real character;
+    a lone half becomes U+FFFD.
+    """
+    match = _SURROGATE.search(text)
+    if match is None:
+        return text
+    start = max(0, match.start() - 60)
+    logger.warning(
+        "Repairing UTF-16 surrogates in %s near: %r",
+        context or "outgoing text",
+        text[start : match.end() + 20],
+    )
+    return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")

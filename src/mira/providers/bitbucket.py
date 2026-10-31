@@ -44,7 +44,7 @@ from mira.platforms.bitbucket.auth import (
     user_identifiers,
 )
 from mira.providers.base import CHECK_RUN_NAME, BaseProvider, CheckConclusion
-from mira.providers.formatting import format_comment_body, format_key_issues
+from mira.providers.formatting import format_comment_body, format_key_issues, repair_surrogates
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +180,7 @@ def _mermaid_to_text(diagram: str) -> str:
 
 def to_bitbucket_markdown(body: str) -> str:
     """Rewrite a Mira (GitHub-flavoured) body into markdown Bitbucket renders."""
+    body = repair_surrogates(body, context="Bitbucket comment")
     body = _MERMAID_FENCE.sub(lambda m: _mermaid_to_text(m.group(1)), body)
     return _outside_fences(body, _prose_to_bitbucket).strip()
 
