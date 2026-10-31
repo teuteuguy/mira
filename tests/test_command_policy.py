@@ -16,7 +16,7 @@ class _Provider:
     def __init__(self, permission: str | None = "write", error: Exception | None = None):
         self.permission = permission
         self.error = error
-        self.calls: list[tuple[str, str, str, int | None]] = []
+        self.calls: list[tuple[str, str, str, int | str | None]] = []
 
     async def get_repo_permission(
         self,
@@ -24,7 +24,7 @@ class _Provider:
         repo: str,
         username: str,
         *,
-        user_id: int | None = None,
+        user_id: int | str | None = None,
     ) -> str | None:
         self.calls.append((owner, repo, username, user_id))
         if self.error:
@@ -209,3 +209,73 @@ async def test_wildcard_never_overrides_blocked_users():
 @pytest.mark.asyncio
 async def test_wildcard_ignores_empty_actor():
     assert not await _allowed(_config(allowed_users=["*"]), "ask", "", _Provider())
+
+
+class _NamesNotUniqueProvider(_Provider):
+    """Like Bitbucket: nicknames can be shared, so only the account id is trusted."""
+
+    unique_usernames = False
+
+
+async def _allowed_by_id(
+    config: MiraConfig, actor: str, user_id: str, provider: _Provider, command: str = "review"
+) -> bool:
+    return await is_command_allowed(
+        config,
+        command,
+        actor,
+        provider=provider,
+        owner="acme",
+        repo="widgets",
+        user_id=user_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_non_unique_names_allowlisted_name_is_not_a_grant():
+    """Another account sharing an allowlisted nickname must not inherit the grant."""
+    provider = _NamesNotUniqueProvider("read")
+    config = _config(allowed_users=["alice"])
+    assert not await _allowed_by_id(config, "alice", "557058:mallory", provider)
+    assert provider.calls == [("acme", "widgets", "alice", "557058:mallory")]
+
+
+@pytest.mark.asyncio
+async def test_non_unique_names_allowlist_matches_account_id():
+    provider = _NamesNotUniqueProvider("read")
+    config = _config(allowed_users=["557058:alice"])
+    assert await _allowed_by_id(config, "alice", "557058:alice", provider)
+    assert provider.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["alice", "557058:alice"])
+async def test_non_unique_names_block_matches_name_or_account_id(entry):
+    provider = _NamesNotUniqueProvider("write")
+    config = _config(blocked_users=[entry])
+    assert not await _allowed_by_id(config, "alice", "557058:alice", provider)
+
+
+@pytest.mark.asyncio
+async def test_non_unique_names_per_command_allowlist_matches_account_id_only():
+    provider = _NamesNotUniqueProvider("read")
+    config = _config(review=CommandOverrideConfig(allowed_users=["alice", "557058:bob"]))
+    assert not await _allowed_by_id(config, "alice", "557058:mallory", provider)
+    assert await _allowed_by_id(config, "bob", "557058:bob", provider)
+
+
+@pytest.mark.asyncio
+async def test_permission_lookup_receives_account_id():
+    provider = _NamesNotUniqueProvider("write")
+    assert await _allowed_by_id(MiraConfig(), "alice", "557058:alice", provider)
+    assert provider.calls == [("acme", "widgets", "alice", "557058:alice")]
+
+
+@pytest.mark.asyncio
+async def test_non_unique_names_wildcard_allows_any_account():
+    """The "*" allowlist still grants every commenter that has an account id."""
+    provider = _NamesNotUniqueProvider(error=RuntimeError("permission lookup forbidden"))
+    config = _config(allowed_users=["*"], blocked_users=["mallory"])
+    assert await _allowed_by_id(config, "alice", "557058:alice", provider)
+    assert not await _allowed_by_id(config, "mallory", "557058:mallory", provider)
+    assert provider.calls == []
