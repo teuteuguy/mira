@@ -389,6 +389,11 @@ class TestSuggestionWithoutBody:
 
 
 class TestScrubSurrogates:
+    def test_split_pair_is_rejoined(self):
+        from mira.llm.response_parser import scrub_surrogates
+
+        assert scrub_surrogates("a \ud83d\udd34 b") == "a \U0001f534 b"
+
     """Half of an escaped surrogate pair (a truncated emoji) must not reach the code host."""
 
     def test_lone_surrogate_replaced_and_valid_pair_kept(self):
