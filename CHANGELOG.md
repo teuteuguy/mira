@@ -20,6 +20,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **Model output with a truncated emoji no longer breaks posting.** A model sometimes emits half of an escaped surrogate pair (`\ud83d` without its low half). Parsing turned it into a lone surrogate that cannot be encoded as UTF-8, so posting the walkthrough or a comment failed with "surrogates not allowed" and the PR kept showing "Reviewing this PR…". Lone surrogates in parsed review and walkthrough output are now replaced with U+FFFD.
+- **A walkthrough that fails to post no longer leaves the PR on "Reviewing this PR…".** When the final walkthrough comment is rejected (for example, by an encoding error), the placeholder is replaced with a note that the review finished and any findings are posted as review comments.
 
 ## [0.10.1] — 2026-10-28
 
