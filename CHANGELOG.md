@@ -21,6 +21,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Model output with a truncated emoji no longer breaks posting.** A model sometimes emits half of an escaped surrogate pair (`\ud83d` without its low half). Parsing turned it into a lone surrogate that cannot be encoded as UTF-8, so posting the walkthrough or a comment failed with "surrogates not allowed" and the PR kept showing "Reviewing this PR…". Lone surrogates in parsed review and walkthrough output are now replaced with U+FFFD.
 - **A walkthrough that fails to post no longer leaves the PR on "Reviewing this PR…".** When the final walkthrough comment is rejected (for example, by an encoding error), the placeholder is replaced with a note that the review finished and any findings are posted as review comments.
+- **Walkthroughs on PRs with skipped files post again.** The "📋 Reviewed N of M files" heading was written as the escapes `\ud83d\udccb`, which Python keeps as two lone UTF-16 surrogates rather than one emoji. Encoding the walkthrough then failed with "surrogates not allowed", so on any PR large enough for files to be skipped the walkthrough was never posted (GitLab, Forgejo and Bitbucket send UTF-8 JSON bodies).
 
 ## [0.10.1] — 2026-10-28
 
