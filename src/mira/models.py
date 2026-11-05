@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
+from typing import Any
 
 WALKTHROUGH_MARKER = "<!-- mira-walkthrough -->"
 PR_SUMMARY_START = "<!-- mira-pr-summary-start -->"
@@ -215,6 +216,8 @@ class WalkthroughResult:
         overlaps: list[OverlapFinding] | None = None,
         failure_notice: str | None = None,
         unverified_findings: list[ReviewComment] | None = None,
+        workflow_section: str | None = None,
+        workflow_banner: str | None = None,
     ) -> str:
         """Render as a markdown PR comment.
 
@@ -222,7 +225,14 @@ class WalkthroughResult:
         "plausible" but did not post; they are listed as not-verified hints.
         """
         parts = [WALKTHROUGH_MARKER, "## Mira PR Walkthrough", ""]
+        if workflow_banner and not in_progress:
+            parts.append(workflow_banner)
+            parts.append("")
         parts.append(self.summary)
+
+        if workflow_section and not in_progress:
+            parts.append("")
+            parts.append(workflow_section)
 
         if self.sequence_diagram:
             # Hardening at render time — the single choke point every
@@ -433,6 +443,8 @@ class ReviewResult:
     # Draft findings self-critique graded "plausible" but did not post. Shown
     # in the walkthrough only with review.show_unverified_findings.
     unverified_findings: list[ReviewComment] = field(default_factory=list)
+    # mira.workflow.WorkflowRun: which workflow ran and what each step did.
+    workflow_run: Any = None
 
 
 @dataclass

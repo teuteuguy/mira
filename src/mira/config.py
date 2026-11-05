@@ -13,6 +13,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from mira.exceptions import ConfigError
+from mira.workflow.config import WorkflowConfig
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +357,17 @@ class MiraConfig(BaseModel):
     index: IndexConfig = Field(default_factory=IndexConfig)
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    # Ordered review stages per trigger. Empty = the built-in default
+    # workflow, which reproduces the fixed pipeline (see mira.workflow).
+    workflows: list[WorkflowConfig] = Field(default_factory=list)
+
+    @field_validator("workflows")
+    @classmethod
+    def _unique_workflow_names(cls, v: list[WorkflowConfig]) -> list[WorkflowConfig]:
+        names = [w.name for w in v]
+        if len(names) != len(set(names)):
+            raise ValueError("workflow names must be unique")
+        return v
 
 
 def find_config_file(start_dir: Path | None = None) -> Path | None:
@@ -406,6 +418,9 @@ def _strip_deployment_only_settings(overlay: dict[str, Any]) -> dict[str, Any]:
     # Command authorization is deployment-controlled: a repository must not
     # be able to widen its own command allowlist.
     cleaned.pop("commands", None)
+    # Workflows choose which passes (and later, which agents and models) run;
+    # a repository must not be able to rewrite its own review pipeline.
+    cleaned.pop("workflows", None)
     return cleaned
 
 

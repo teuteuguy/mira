@@ -456,11 +456,13 @@ Mira should not grow those capabilities itself. `runtime: external` on an agent 
 
 ## Delivery
 
-This is one feature, built in our fork and proposed upstream in reviewable pieces. Each piece leaves Mira working, and an instance without workflow config behaves as before.
+This is one feature, built in a fork and proposed upstream in reviewable pieces. Each piece leaves Mira working, and an instance without workflow config behaves as before.
 
-1. **Workflow engine**: split the built-in review into steps, add the stage runner with prepare and finalize, the default workflow, `on_result` / `on_block` / `on_error` / `share_summary`, and persisted runs and steps. This changes no behaviour on its own.
+1. **Workflow engine** (implemented, see [workflows.md](../workflows.md)): split the built-in review into steps, add the stage runner with prepare and finalize, the default workflow, `on_result` / `on_block` / `on_error` / `share_summary`, the blocked check status and the walkthrough section. This changes no behaviour on its own. Two refinements came out of building it:
+    1. `mira.walkthrough` and `mira.overlap` run alongside the whole workflow wherever they are listed, because the walkthrough is posted before any findings exist. Listing them only turns them on.
+    2. `block_when` has only `min_severity` for now. `status` arrives with agents, since only agents report `confirmed` or `needs_validation`.
 2. **Agents and skills**: connections, the skill loader and cache, the agent step on the generalised agentic loop, agent output in comments and the walkthrough. First agent: the Cloudflare skill in guidance mode, on one repository.
-3. **Dashboard**: Connections, Agents, Skills, Workflows (pipeline editor) and Runs, the config/dashboard merge, export and import, and "Test on a PR".
+3. **Dashboard**: Connections, Agents, Skills, Workflows (pipeline editor) and Runs, the persisted runs, steps and findings behind them, the config/dashboard merge, export and import, and "Test on a PR".
 4. **Triggers**: the `command`, `index` and `schedule` triggers, per-agent statuses and the webhook events.
 5. **External runtime** for full audits in a sandboxed worker.
 

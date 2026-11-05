@@ -65,6 +65,20 @@ from mira.models import (
 )
 from mira.providers.base import BaseProvider, CheckConclusion
 from mira.security.secrets_scan import scan_secrets
+from mira.workflow.config import (
+    BUILTIN_DEPENDENCIES,
+    BUILTIN_OSV,
+    BUILTIN_OVERLAP,
+    BUILTIN_REVIEW,
+    BUILTIN_SECRETS,
+    BUILTIN_SECURITY,
+    BUILTIN_WALKTHROUGH,
+    StepConfig,
+    WorkflowConfig,
+    select_workflow,
+)
+from mira.workflow.render import render_workflow_banner, render_workflow_section
+from mira.workflow.runner import StepContext, StepOutput, WorkflowRun, run_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -452,6 +466,9 @@ class ReviewEngine:
         self._index_was_empty = False
         self._agentic_source_fetcher: object | None = None
         self._agentic_repo_tree: list[str] = []
+        self._workflow: WorkflowConfig | None = None
+        self._workflow_is_default = True
+        self._workflow_run: WorkflowRun | None = None
 
     async def _post_placeholder_comment(self, pr_info: PRInfo) -> int | None:
         """Post an immediate 'Reviewing this PR...' comment and return its ID.
@@ -494,6 +511,12 @@ class ReviewEngine:
             "Code Review Failed",
             "The review stopped due to an unexpected error and did not produce findings.",
         ),
+        "blocked": (
+            "failure",
+            "Code Review Blocked",
+            "A workflow step found a blocking issue. See the walkthrough and the "
+            "posted comments for details.",
+        ),
         "neutral": (
             "neutral",
             "Code Review Completed with Warnings",
@@ -501,6 +524,21 @@ class ReviewEngine:
             "generated. Findings (if any) were posted as PR/file comments.",
         ),
     }
+
+    def _resolve_workflow(self) -> tuple[WorkflowConfig, bool]:
+        """The workflow for this review: first configured match, else the default."""
+        if self._workflow is None:
+            pr_info = getattr(self, "_pr_info", None)
+            repo = f"{pr_info.owner}/{pr_info.repo}" if pr_info is not None else None
+            self._workflow, self._workflow_is_default = select_workflow(
+                self.config.workflows,
+                self.config.review,
+                trigger="pull_request",
+                repo=repo,
+            )
+            if not self._workflow_is_default:
+                logger.info("Using workflow %r for %s", self._workflow.name, repo or "local diff")
+        return self._workflow, self._workflow_is_default
 
     async def _start_check(self, pr_info: PRInfo) -> int | None:
         """Best-effort: start a check run for the head commit; never fails a review."""
@@ -661,12 +699,15 @@ class ReviewEngine:
         # A disabled walkthrough, or a review skipped before any generation
         # (no files, all files filtered, docs-only, no-new-commit re-reviews),
         # finishes as success.
+        workflow, _ = self._resolve_workflow()
         walkthrough_missing = (
-            self.config.review.walkthrough
+            BUILTIN_WALKTHROUGH in workflow.step_names()
             and result.skipped_reason is None
             and result.walkthrough is None
         )
         status_key = "neutral" if walkthrough_missing else "success"
+        if result.workflow_run is not None and result.workflow_run.blocked:
+            status_key = "blocked"
         await self._finish_check(pr_info, run_id, status_key, result)
         return result
 
@@ -833,7 +874,8 @@ class ReviewEngine:
         # review itself is skipped (empty incremental diff): findings only
         # surface in the walkthrough, which won't be posted.
         overlap_task = None
-        if diff_text.strip():
+        workflow, _ = self._resolve_workflow()
+        if diff_text.strip() and BUILTIN_OVERLAP in workflow.step_names():
             overlap_task = _asyncio.create_task(self._detect_overlaps_safe(pr_info, full_diff_text))
 
         try:
@@ -999,6 +1041,8 @@ class ReviewEngine:
                         dashboard_url=_os.environ.get("MIRA_DASHBOARD_URL", ""),
                         overlaps=overlaps or None,
                         unverified_findings=unverified or None,
+                        workflow_section=render_workflow_section(result.workflow_run),
+                        workflow_banner=render_workflow_banner(result.workflow_run),
                     )
                     comment_id = placeholder_id
                     if comment_id is None:
@@ -1255,16 +1299,18 @@ class ReviewEngine:
         # max_file_size — shouldn't silently disable it. `only_paths` still
         # applies: review-rest targets a specific subset and shouldn't re-warn
         # about manifests the first pass already covered.
+        workflow, _ = self._resolve_workflow()
+        step_names = workflow.step_names()
         manifest_candidates = (
             _manifest_files([f for f in filtered if only_paths is None or f.path in only_paths])
-            if self.config.review.dependency_overlap
+            if step_names & {BUILTIN_DEPENDENCIES, BUILTIN_OSV}
             else []
         )
 
         filtered = selected
 
         async def _generate_walkthrough() -> WalkthroughResult | None:
-            if not self.config.review.walkthrough:
+            if BUILTIN_WALKTHROUGH not in step_names:
                 return None
             try:
                 wt_messages = build_walkthrough_prompt(
@@ -1480,6 +1526,7 @@ class ReviewEngine:
         async def _review_chunk(
             idx: int,
             chunk: ReviewChunk,
+            shared_context: str = "",
         ) -> tuple[list[ReviewComment], list[KeyIssue], str]:
             async with semaphore:
                 logger.info(
@@ -1498,7 +1545,11 @@ class ReviewEngine:
                         pr_title=pr_title,
                         pr_description=pr_description,
                         existing_comments=base_existing or None,
-                        code_context=code_context_block,
+                        code_context=(
+                            f"{code_context_block}\n\n{shared_context}"
+                            if shared_context
+                            else code_context_block
+                        ),
                         learned_rules=learned_rules or None,
                         custom_rules=custom_rules or None,
                         file_history=chunk_history or None,
@@ -1601,7 +1652,25 @@ class ReviewEngine:
                     )
                     return [], [], ""
 
-        review_task = _asyncio.gather(*[_review_chunk(i, c) for i, c in enumerate(chunks)])
+        # ── Workflow steps ────────────────────────────────────────────────
+        # Each built-in pass is a step; the workflow decides which run, in
+        # which stage order, and what their findings do. The default workflow
+        # runs every enabled pass in one stage, which is the historical
+        # behaviour: all passes in parallel, every finding appended.
+        async def _step_review(ctx: StepContext) -> StepOutput:
+            shared = ctx.shared_context()
+            results = await _asyncio.gather(
+                *[_review_chunk(i, c, shared) for i, c in enumerate(chunks)]
+            )
+            out = StepOutput()
+            for i, (comments, key_issues, summary_text) in enumerate(results):
+                audit.append({"stage": "drafted", "chunk": i, "count": len(comments)})
+                out.comments.extend(comments)
+                out.key_issues.extend(key_issues)
+                if summary_text:
+                    out.summaries.append(summary_text)
+            return out
+
         # Per-chunk executors (fresh per call) so each chunk gets its own
         # 50KB tool-output budget; one shared executor would let an early
         # chunk exhaust the budget and wedge later chunks.
@@ -1619,8 +1688,8 @@ class ReviewEngine:
                     repo_tree=list(self._agentic_repo_tree),
                 )
 
-        security_task = _asyncio.create_task(
-            security_review_pass(
+        async def _step_security(ctx: StepContext) -> StepOutput:
+            comments = await security_review_pass(
                 self.llm,
                 filtered,
                 _security_relevant_files(filtered),
@@ -1628,9 +1697,7 @@ class ReviewEngine:
                 security_llm=self.security_llm,
                 agentic_executor_factory=_security_executor_factory,
             )
-            if self.config.review.security_pass
-            else _asyncio.sleep(0, result=[])
-        )
+            return StepOutput(comments=comments)
 
         # Dependency-overlap pass: only when the PR touches a manifest file, so
         # most PRs pay nothing. When it does, fetch the repo's existing package
@@ -1660,59 +1727,103 @@ class ReviewEngine:
                     pr_source_fetcher = ProviderSourceFetcher(
                         self.provider, pr_info, pr_info.head_branch
                     )
-        dependency_task = _asyncio.create_task(
-            dependency_review_pass(
+
+        async def _step_dependencies(ctx: StepContext) -> StepOutput:
+            if not manifest_files:
+                return StepOutput(skipped_reason="no dependency manifest changed")
+            comments = await dependency_review_pass(
                 self.llm,
                 manifest_files,
                 existing_packages,
                 pr_title,
                 indexing_llm=self.indexing_llm,
             )
-            if manifest_files
-            else _asyncio.sleep(0, result=[])
-        )
+            return StepOutput(comments=comments)
 
         from mira.security.pr_scan import scan_manifest_changes
 
-        osv_task = _asyncio.create_task(
-            scan_manifest_changes(manifest_files, pr_source_fetcher)
-            if manifest_files and self.config.review.osv_scan and pr_source_fetcher is not None
-            else _asyncio.sleep(0, result=[])
-        )
+        async def _step_osv(ctx: StepContext) -> StepOutput:
+            if not manifest_files or pr_source_fetcher is None:
+                return StepOutput(skipped_reason="no dependency manifest changed")
+            return StepOutput(
+                comments=await scan_manifest_changes(manifest_files, pr_source_fetcher)
+            )
 
-        secrets_task = _asyncio.create_task(
-            scan_secrets(filtered)
-            if filtered and self.config.review.secrets_scan
-            else _asyncio.sleep(0, result=[])
-        )
+        async def _step_secrets(ctx: StepContext) -> StepOutput:
+            if not filtered:
+                return StepOutput(skipped_reason="no files")
+            return StepOutput(comments=await scan_secrets(filtered))
 
-        (
-            chunk_results,
-            security_comments,
-            dependency_comments,
-            osv_comments,
-            secrets_comments,
-        ) = await _asyncio.gather(
-            review_task, security_task, dependency_task, osv_task, secrets_task
+        # Findings that already passed self-critique while deciding whether a
+        # step blocks; finalize doesn't grade them a second time.
+        pre_verified: set[int] = set()
+
+        async def _block_check(
+            step: StepConfig, comments: list[ReviewComment]
+        ) -> tuple[list[ReviewComment], list[ReviewComment]]:
+            classified = [classify_severity(c) for c in comments]
+            floor = Severity.from_str(step.block_when.min_severity)
+            candidates = [c for c in classified if c.severity >= floor]
+            if candidates and self.config.review.self_critique:
+                try:
+                    candidates = await self_critique(
+                        self.llm,
+                        candidates,
+                        learned_rules=learned_rules or None,
+                        custom_rules=custom_rules or None,
+                        indexing_llm=self.indexing_llm,
+                        diff_files=filtered,
+                        audit=audit,
+                    )
+                except Exception as exc:
+                    logger.warning("Blocking-findings critique failed, keeping them: %s", exc)
+            pre_verified.update(id(c) for c in candidates)
+            return classified, candidates
+
+        workflow_run = await run_workflow(
+            workflow,
+            is_default=self._workflow_is_default,
+            steps={
+                BUILTIN_REVIEW: _step_review,
+                BUILTIN_SECURITY: _step_security,
+                BUILTIN_DEPENDENCIES: _step_dependencies,
+                BUILTIN_OSV: _step_osv,
+                BUILTIN_SECRETS: _step_secrets,
+            },
+            block_check=_block_check,
         )
+        self._workflow_run = workflow_run
 
         all_comments: list[ReviewComment] = []
         all_key_issues: list[KeyIssue] = []
         summaries: list[str] = []
-        for i, (comments, key_issues, summary_text) in enumerate(chunk_results):
-            audit.append({"stage": "drafted", "chunk": i, "count": len(comments)})
+        _audit_chunk = {
+            BUILTIN_SECURITY: "security",
+            BUILTIN_DEPENDENCIES: "dependency",
+            BUILTIN_OSV: "osv",
+            BUILTIN_SECRETS: "secrets",
+        }
+        by_name = {sr.name: sr for sr in workflow_run.steps}
+        for sr in workflow_run.steps:
+            if sr.status not in ("passed", "blocked") or sr.step.result_mode == "report":
+                continue
+            if sr.name in _audit_chunk:
+                continue  # appended below in the historical audit order
+            all_comments.extend(sr.output.comments)
+            all_key_issues.extend(sr.output.key_issues)
+            summaries.extend(sr.output.summaries)
+        for name, chunk_label in _audit_chunk.items():
+            step_run = by_name.get(name)
+            included = (
+                step_run is not None
+                and step_run.status in ("passed", "blocked")
+                and step_run.step.result_mode != "report"
+            )
+            comments = step_run.output.comments if step_run is not None and included else []
+            audit.append({"stage": "drafted", "chunk": chunk_label, "count": len(comments)})
             all_comments.extend(comments)
-            all_key_issues.extend(key_issues)
-            if summary_text:
-                summaries.append(summary_text)
-        audit.append({"stage": "drafted", "chunk": "security", "count": len(security_comments)})
-        all_comments.extend(security_comments)
-        audit.append({"stage": "drafted", "chunk": "dependency", "count": len(dependency_comments)})
-        all_comments.extend(dependency_comments)
-        audit.append({"stage": "drafted", "chunk": "osv", "count": len(osv_comments)})
-        all_comments.extend(osv_comments)
-        audit.append({"stage": "drafted", "chunk": "secrets", "count": len(secrets_comments)})
-        all_comments.extend(secrets_comments)
+            if step_run is not None and included:
+                all_key_issues.extend(step_run.output.key_issues)
 
         all_comments = [classify_severity(c) for c in all_comments]
 
@@ -1746,10 +1857,12 @@ class ReviewEngine:
             # drops the finding. Add those manifests back as evidence only.
             _selected = {f.path for f in filtered}
             critique_files = filtered + [f for f in manifest_candidates if f.path not in _selected]
+            verified = [c for c in final_comments if id(c) in pre_verified]
+            to_grade = [c for c in final_comments if id(c) not in pre_verified]
             try:
-                final_comments = await self_critique(
+                graded = await self_critique(
                     self.llm,
-                    final_comments,
+                    to_grade,
                     learned_rules=learned_rules or None,
                     custom_rules=custom_rules or None,
                     indexing_llm=self.indexing_llm,
@@ -1757,6 +1870,8 @@ class ReviewEngine:
                     audit=audit,
                     held_back=held_back,
                 )
+                # Findings that blocked were already graded; keep them as-is.
+                final_comments = [*verified, *graded] if verified else graded
             except Exception as exc:
                 logger.warning("Self-critique pass failed, keeping original comments: %s", exc)
 
@@ -1820,4 +1935,5 @@ class ReviewEngine:
             total_paths=all_paths,
             audit=audit,
             unverified_findings=held_back,
+            workflow_run=workflow_run,
         )
